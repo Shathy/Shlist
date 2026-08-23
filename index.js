@@ -1,4 +1,18 @@
 const admin = require("firebase-admin");
+const express = require("express");
+
+const app = express();
+// Railway يمرر PORT ديناميكياً
+const PORT = process.env.PORT || 8080;
+
+// استجابة فورية لـ Healthcheck الخاص بـ Railway
+app.get("/", (req, res) => {
+  res.status(200).send("OK");
+});
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Express Server active on port ${PORT}`);
+});
 
 // التقاط الأخطاء لمنع الانهيار
 process.on("uncaughtException", (err) => console.error("Uncaught Error:", err));
@@ -17,8 +31,6 @@ try {
 }
 
 const db = admin.database();
-
-console.log("=== السيرفر يعمل كمستمع خلفي دائم ومستعد لالتقاط الحذف ===");
 
 // التسمع على الحذف
 db.ref("Chats").on("child_added", (chatSnapshot) => {
@@ -49,8 +61,3 @@ async function saveDeleted(messageId, data, chatId) {
     console.error("❌ Save Error:", err.message);
   }
 }
-
-// 💥 السر هنا: منع Node.js من إنهاء العملية وإبقاء الـ Event Loop نشطاً للأبد
-setInterval(() => {
-  // Keep-alive heartbeat
-}, 1000 * 60 * 60);
