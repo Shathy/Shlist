@@ -9,35 +9,45 @@ admin.initializeApp({
 
 const db = admin.database();
 
-console.log("الخادم الشامل يعمل ومستعد لالتقاط أي حذف في قاعدة البيانات...");
+console.log("الخادم يعمل ومستعد لالتقاط الحذف على جميع المستويات...");
 
-// التسمع على كل تغيير في الشجرة كاملة
-db.ref().on("child_removed", handleDeletion);
+// 1. التسمع المباشر إذا كانت الرسائل في المسار الرئيسي
+db.ref("chats").on("child_removed", (snapshot) => {
+  console.log("تم التقاط حذف مباشر من chats:", snapshot.key);
+  saveToDeleted(snapshot.key, snapshot.val());
+});
 
-// التسمع داخل المستويات الفرعية العمومية
-db.ref("chats").on("child_removed", handleDeletion);
-db.ref("messages").on("child_removed", handleDeletion);
+// 2. التسمع الديناميكي داخل كل محادثة فرعية (chats -> chatId -> messages أو chats -> chatId)
+db.ref("chats").on("child_added", (chatSnapshot) => {
+  const chatId = chatSnapshot.key;
+  
+  // التسمع داخل كل محادثة
+  db.ref(`chats/${chatId}`).on("child_removed", (snapshot) => {
+    console.log(`تم حذف عنصر من المحادثة ${chatId}:`, snapshot.key);
+    saveToDeleted(snapshot.key, snapshot.val(), chatId);
+  });
 
-async function handleDeletion(snapshot) {
-  console.log("=== تم التقاط عملية حذف ===");
-  console.log("المفتاح (Key):", snapshot.key);
-  console.log("البيانات (Val):", snapshot.val());
+  // التسمع إذا كانت الرسائل داخل فرع messages
+  db.ref(`chats/${chatId}/messages`).on("child_removed", (snapshot) => {
+    console.log(`تم حذف رسالة من chats/${chatId}/messages:`, snapshot.key);
+    saveToDeleted(snapshot.key, snapshot.val(), chatId);
+  });
+});
 
-  const deletedData = snapshot.val();
-  const messageId = snapshot.key;
-
-  if (deletedData) {
-    try {
-      await db.ref(`deleted_messages/${messageId}`).set({
-        message_id: messageId,
-        content: deletedData.content || deletedData.text || deletedData.message || JSON.stringify(deletedData),
-        sender_id: deletedData.sender_id || deletedData.senderId || "",
-        chat_id: deletedData.chat_id || "",
-        deleted_at: new Date().toISOString()
-      });
-      console.log(`[نجاح] تم الأرشفة بنجاح للمفتاح: ${messageId}`);
-    } catch (err) {
-      console.error("[خطأ في الحفظ]:", err);
-    }
+// دالة أرشفة الرسائل المحذوفة
+async function saveToDeleted(messageId, data, chatId = "") {
+  if (!data) return;
+  try {
+    await db.ref(`deleted_messages/${messageId}`).set({
+      message_id: messageId,
+      content: data.content || data.text || data.message || (typeof data === 'string' ? data : JSON.stringify(data)),
+      sender_id: data.sender_id || data.senderId || data.sender || "",
+      chat_id: chatId || data.chat_id || data.chatId || "",
+      original_data: data,
+      deleted_at: new Date().toISOString()
+    });
+    console.log(`[SUCCESS] تم حفظ الرسالة المحذوفة بنجاح: ${messageId}`);
+  } catch (error) {
+    console.error("[ERROR] فشل الحفظ في deleted_messages:", error);
   }
 }
