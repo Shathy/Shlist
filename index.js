@@ -18,7 +18,7 @@ try {
 
 const db = admin.database();
 
-console.log("=== السيرفر يعمل كـ Worker ومستعد لالتقاط الحذف ===");
+console.log("=== السيرفر يعمل كمستمع خلفي دائم ومستعد لالتقاط الحذف ===");
 
 // التسمع على الحذف
 db.ref("Chats").on("child_added", (chatSnapshot) => {
@@ -49,3 +49,8 @@ async function saveDeleted(messageId, data, chatId) {
     console.error("❌ Save Error:", err.message);
   }
 }
+
+// 💥 السر هنا: منع Node.js من إنهاء العملية وإبقاء الـ Event Loop نشطاً للأبد
+setInterval(() => {
+  // Keep-alive heartbeat
+}, 1000 * 60 * 60);
