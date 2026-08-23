@@ -2,9 +2,10 @@ const admin = require("firebase-admin");
 const express = require("express");
 
 const app = express();
+
+// إجبار الخادم على استخدام منفذ Railway الديناميكي أولاً
 const PORT = process.env.PORT || 8080;
 
-// استجابة فورية لـ Railway للـ Health Check
 app.get("/", (req, res) => {
   res.status(200).send("OK");
 });
@@ -27,7 +28,7 @@ try {
 
 const db = admin.database();
 
-// الاستماع لأحداث الحذف
+// التسمع على الحذف
 db.ref("Chats").on("child_added", (chatSnapshot) => {
   const chatId = chatSnapshot.key;
 
