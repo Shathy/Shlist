@@ -4,7 +4,7 @@ const express = require("express");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// استجابة فورية لطلب Healthcheck من Railway لمنع قتل الحاوية
+// استجابة فورية لـ Railway للـ Health Check
 app.get("/", (req, res) => {
   res.status(200).send("OK");
 });
@@ -13,7 +13,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Express Server running on port ${PORT}`);
 });
 
-// تهيئة Firebase Admin SDK
+// تهيئة Firebase
 try {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
   admin.initializeApp({
@@ -27,7 +27,7 @@ try {
 
 const db = admin.database();
 
-// الاستماع لأحداث الحذف في Chats
+// الاستماع لأحداث الحذف
 db.ref("Chats").on("child_added", (chatSnapshot) => {
   const chatId = chatSnapshot.key;
 
