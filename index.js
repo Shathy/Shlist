@@ -1,16 +1,16 @@
 const admin = require("firebase-admin");
 const http = require("http");
 
-// 1. إنشاء سيرفر وهمي لإبقاء Railway متصلًا وناجحًا في الفحص (Health Check)
-const PORT = process.env.PORT || 3000;
+// 1. خادم HTTP للاستجابة لفحوصات Railway (Health Checks)
+const PORT = process.env.PORT || 8080;
 http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("Firebase Listener is Running Smoothly!");
-}).listen(PORT, () => {
-  console.log(`HTTP Server listening on port ${PORT}`);
+  res.end("OK");
+}).listen(PORT, "0.0.0.0", () => {
+  console.log(`HTTP Server running on port ${PORT}`);
 });
 
-// 2. تهيئة Firebase
+// 2. تهيئة Firebase Admin SDK
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
@@ -22,7 +22,7 @@ const db = admin.database();
 
 console.log("=== السيرفر يعمل بنجاح ومستعد لالتقاط حذف الرسائل ===");
 
-// 3. التسمع على مسار المحادثات Chats
+// 3. التسمع داخل كل محادثة فرعية في Chats
 db.ref("Chats").on("child_added", (chatSnapshot) => {
   const chatId = chatSnapshot.key;
   
@@ -39,7 +39,7 @@ db.ref("Chats").on("child_added", (chatSnapshot) => {
   });
 });
 
-// دالة الحفظ
+// دالة حفظ البيانات المحذوفة
 async function saveDeleted(messageId, data, chatId) {
   if (!data) return;
   try {
