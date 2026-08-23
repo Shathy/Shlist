@@ -9,45 +9,47 @@ admin.initializeApp({
 
 const db = admin.database();
 
-console.log("الخادم يعمل ومستعد لالتقاط الحذف على جميع المستويات...");
+console.log("=== السيرفر يعمل بنجاح ومستعد لالتقاط أي عملية حذف ===");
 
-// 1. التسمع المباشر إذا كانت الرسائل في المسار الرئيسي
-db.ref("chats").on("child_removed", (snapshot) => {
-  console.log("تم التقاط حذف مباشر من chats:", snapshot.key);
-  saveToDeleted(snapshot.key, snapshot.val());
-});
-
-// 2. التسمع الديناميكي داخل كل محادثة فرعية (chats -> chatId -> messages أو chats -> chatId)
-db.ref("chats").on("child_added", (chatSnapshot) => {
-  const chatId = chatSnapshot.key;
+// 1. الاستماع لكافة الفروع الرئيسية تحت الجذر مباشرة
+db.ref().on("child_added", (parentSnapshot) => {
+  const parentKey = parentSnapshot.key;
   
-  // التسمع داخل كل محادثة
-  db.ref(`chats/${chatId}`).on("child_removed", (snapshot) => {
-    console.log(`تم حذف عنصر من المحادثة ${chatId}:`, snapshot.key);
-    saveToDeleted(snapshot.key, snapshot.val(), chatId);
+  // تجنب التسمع على المجلد الذي نحفظ فيه المحذوفات حتى لا ندخل في حلقة تكرارية
+  if (parentKey === "deleted_messages") return;
+
+  console.log(`تم بدء المراقبة على الفرع الرئيسي: ${parentKey}`);
+
+  // التسمع على الحذف داخل هذا الفرع الرئيسي
+  db.ref(parentKey).on("child_removed", (snapshot) => {
+    console.log(`🔥 تم التقاط حذف من الفرع [${parentKey}]:`, snapshot.key);
+    saveDeleted(snapshot.key, snapshot.val(), parentKey);
   });
 
-  // التسمع إذا كانت الرسائل داخل فرع messages
-  db.ref(`chats/${chatId}/messages`).on("child_removed", (snapshot) => {
-    console.log(`تم حذف رسالة من chats/${chatId}/messages:`, snapshot.key);
-    saveToDeleted(snapshot.key, snapshot.val(), chatId);
+  // التسمع على الحذف العميق (المستوى الثالث: chats -> chatId -> messageId)
+  db.ref(parentKey).on("child_added", (childSnapshot) => {
+    const childKey = childSnapshot.key;
+    db.ref(`${parentKey}/${childKey}`).on("child_removed", (subSnapshot) => {
+      console.log(`🔥 تم التقاط حذف عميق من [${parentKey}/${childKey}]:`, subSnapshot.key);
+      saveDeleted(subSnapshot.key, subSnapshot.val(), `${parentKey}/${childKey}`);
+    });
   });
 });
 
-// دالة أرشفة الرسائل المحذوفة
-async function saveToDeleted(messageId, data, chatId = "") {
+// دالة أرشفة البيانات المحذوفة
+async function saveDeleted(messageId, data, path) {
   if (!data) return;
   try {
     await db.ref(`deleted_messages/${messageId}`).set({
       message_id: messageId,
-      content: data.content || data.text || data.message || (typeof data === 'string' ? data : JSON.stringify(data)),
+      path_source: path,
+      content: data.content || data.text || data.message || (typeof data === 'object' ? JSON.stringify(data) : data),
       sender_id: data.sender_id || data.senderId || data.sender || "",
-      chat_id: chatId || data.chat_id || data.chatId || "",
       original_data: data,
       deleted_at: new Date().toISOString()
     });
-    console.log(`[SUCCESS] تم حفظ الرسالة المحذوفة بنجاح: ${messageId}`);
+    console.log(`✅ [نجاح] تم حفظ البيانات المحذوفة في deleted_messages للمفتاح: ${messageId}`);
   } catch (error) {
-    console.error("[ERROR] فشل الحفظ في deleted_messages:", error);
+    console.error("❌ [خطأ] فشل الحفظ في deleted_messages:", error);
   }
 }
