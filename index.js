@@ -9,42 +9,35 @@ admin.initializeApp({
 
 const db = admin.database();
 
-console.log("الخادم يعمل ومستعد لالتقاط جميع التغييرات والحذف...");
+console.log("الخادم الشامل يعمل ومستعد لالتقاط أي حذف في قاعدة البيانات...");
 
-// التسمع الشامل على مستوى قاعدة البيانات أو مسار المحادثات
-const rootRef = db.ref();
+// التسمع على كل تغيير في الشجرة كاملة
+db.ref().on("child_removed", handleDeletion);
 
-// 1. مراقبة الحذف المباشر (child_removed) في أي مكان تحت chats
-db.ref("chats").on("child_removed", async (snapshot) => {
-  console.log("تم حذف عنصر مباشر من chats:", snapshot.key);
-  saveDeleted(snapshot.key, snapshot.val());
-});
+// التسمع داخل المستويات الفرعية العمومية
+db.ref("chats").on("child_removed", handleDeletion);
+db.ref("messages").on("child_removed", handleDeletion);
 
-// 2. مراقبة التعديلات (في حال كان الحذف يغير قيمة isDeleted أو النص)
-db.ref("chats").on("child_changed", async (snapshot) => {
-  const data = snapshot.val();
-  console.log("حدث تعديل في chats على المفتاح:", snapshot.key);
-  
-  // إذا كان التطبيق يوسم الرسالة كمحذوفة عند التعديل
-  if (data && (data.isDeleted === true || data.deleted === true || data.text === "تم حذف هذه الرسالة")) {
-    saveDeleted(snapshot.key, data);
-  }
-});
+async function handleDeletion(snapshot) {
+  console.log("=== تم التقاط عملية حذف ===");
+  console.log("المفتاح (Key):", snapshot.key);
+  console.log("البيانات (Val):", snapshot.val());
 
-// دالة حفظ الرسالة في deleted_messages
-async function saveDeleted(messageId, data) {
-  if (!data) return;
-  try {
-    await db.ref(`deleted_messages/${messageId}`).set({
-      message_id: messageId,
-      content: data.content || data.text || data.message || "",
-      sender_id: data.sender_id || data.senderId || data.sender || "",
-      chat_id: data.chat_id || data.chatId || "",
-      original_timestamp: data.timestamp || data.time || null,
-      deleted_at: new Date().toISOString()
-    });
-    console.log(`[SUCCESS] تم حفظ الرسالة المحذوفة: ${messageId}`);
-  } catch (err) {
-    console.error("[ERROR] فشل الحفظ في deleted_messages:", err);
+  const deletedData = snapshot.val();
+  const messageId = snapshot.key;
+
+  if (deletedData) {
+    try {
+      await db.ref(`deleted_messages/${messageId}`).set({
+        message_id: messageId,
+        content: deletedData.content || deletedData.text || deletedData.message || JSON.stringify(deletedData),
+        sender_id: deletedData.sender_id || deletedData.senderId || "",
+        chat_id: deletedData.chat_id || "",
+        deleted_at: new Date().toISOString()
+      });
+      console.log(`[نجاح] تم الأرشفة بنجاح للمفتاح: ${messageId}`);
+    } catch (err) {
+      console.error("[خطأ في الحفظ]:", err);
+    }
   }
 }
