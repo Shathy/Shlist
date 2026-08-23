@@ -1,45 +1,67 @@
 const admin = require("firebase-admin");
 const http = require("http");
 
-// 1. خادم HTTP للاستجابة لفحوصات Railway (Health Checks)
+// 1. التقاط جميع الأخطاء غير المتوقعة لمنع انهيار الحاوية
+process.on("uncaughtException", (err) => {
+  console.error("🔥 uncaughtException Error:", err.message);
+  console.error(err.stack);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("🔥 unhandledRejection Error:", reason);
+});
+
+// 2. استخدام المنفذ الممرر من Railway ديناميكياً مع الربط بـ 0.0.0.0
 const PORT = process.env.PORT || 8080;
-http.createServer((req, res) => {
+const server = http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("OK");
-}).listen(PORT, "0.0.0.0", () => {
-  console.log(`HTTP Server running on port ${PORT}`);
 });
 
-// 2. تهيئة Firebase Admin SDK
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL: process.env.FIREBASE_DATABASE_URL
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ HTTP Server listening on 0.0.0.0:${PORT}`);
 });
+
+// 3. تهيئة Firebase Admin SDK
+try {
+  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    databaseURL: process.env.FIREBASE_DATABASE_URL
+  });
+
+  console.log("✅ Firebase initialized successfully");
+} catch (error) {
+  console.error("❌ Firebase Initialization Error:", error.message);
+}
 
 const db = admin.database();
 
 console.log("=== السيرفر يعمل بنجاح ومستعد لالتقاط حذف الرسائل ===");
 
-// 3. التسمع داخل كل محادثة فرعية في Chats
-db.ref("Chats").on("child_added", (chatSnapshot) => {
-  const chatId = chatSnapshot.key;
-  
-  // التسمع داخل Chats/CHAT_ID
-  db.ref(`Chats/${chatId}`).on("child_removed", (snapshot) => {
-    console.log(`🔥 تم حذف عنصر من المحادثة [${chatId}]:`, snapshot.key);
-    saveDeleted(snapshot.key, snapshot.val(), chatId);
-  });
+// 4. التسمع داخل كل محادثة فرعية تحت Chats
+try {
+  db.ref("Chats").on("child_added", (chatSnapshot) => {
+    const chatId = chatSnapshot.key;
+    
+    // التسمع داخل Chats/CHAT_ID
+    db.ref(`Chats/${chatId}`).on("child_removed", (snapshot) => {
+      console.log(`🔥 تم حذف عنصر من المحادثة [${chatId}]:`, snapshot.key);
+      saveDeleted(snapshot.key, snapshot.val(), chatId);
+    });
 
-  // التسمع داخل Chats/CHAT_ID/messages
-  db.ref(`Chats/${chatId}/messages`).on("child_removed", (snapshot) => {
-    console.log(`🔥 تم حذف رسالة من [Chats/${chatId}/messages]:`, snapshot.key);
-    saveDeleted(snapshot.key, snapshot.val(), chatId);
+    // التسمع داخل Chats/CHAT_ID/messages
+    db.ref(`Chats/${chatId}/messages`).on("child_removed", (snapshot) => {
+      console.log(`🔥 تم حذف رسالة من [Chats/${chatId}/messages]:`, snapshot.key);
+      saveDeleted(snapshot.key, snapshot.val(), chatId);
+    });
   });
-});
+} catch (err) {
+  console.error("❌ Error setting up Realtime listeners:", err.message);
+}
 
-// دالة حفظ البيانات المحذوفة
+// دالة الحفظ
 async function saveDeleted(messageId, data, chatId) {
   if (!data) return;
   try {
