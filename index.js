@@ -1,20 +1,16 @@
 const admin = require("firebase-admin");
-const http = require("http");
+const express = require("express");
 
-// التقاط أي أخطاء جانبية لمنع انهيار الحاوية
-process.on("uncaughtException", (err) => console.error("Uncaught Error:", err));
-process.on("unhandledRejection", (err) => console.error("Unhandled Rejection:", err));
-
-// استخدام المنفذ الديناميكي من Railway مباشرة
+const app = express();
 const PORT = process.env.PORT || 8080;
 
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("OK");
+// استجابة فورية لطلب Healthcheck من Railway لمنع قتل الحاوية
+app.get("/", (req, res) => {
+  res.status(200).send("OK");
 });
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Server is live on port ${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Express Server running on port ${PORT}`);
 });
 
 // تهيئة Firebase Admin SDK
@@ -24,17 +20,17 @@ try {
     credential: admin.credential.cert(serviceAccount),
     databaseURL: process.env.FIREBASE_DATABASE_URL
   });
-  console.log("✅ Firebase Connected");
-} catch (e) {
-  console.error("❌ Firebase Auth Error:", e.message);
+  console.log("✅ Firebase Connected Successfully");
+} catch (error) {
+  console.error("❌ Firebase Config Error:", error.message);
 }
 
 const db = admin.database();
 
-// الاستماع لأحداث الحذف
+// الاستماع لأحداث الحذف في Chats
 db.ref("Chats").on("child_added", (chatSnapshot) => {
   const chatId = chatSnapshot.key;
-  
+
   db.ref(`Chats/${chatId}`).on("child_removed", (snapshot) => {
     saveDeleted(snapshot.key, snapshot.val(), chatId);
   });
