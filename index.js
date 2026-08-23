@@ -1,11 +1,11 @@
 const admin = require("firebase-admin");
 const http = require("http");
 
-// التقاط الأخطاء لمنع انهيار التطبيق
+// التقاط أي أخطاء جانبية لمنع انهيار الحاوية
 process.on("uncaughtException", (err) => console.error("Uncaught Error:", err));
 process.on("unhandledRejection", (err) => console.error("Unhandled Rejection:", err));
 
-// الاستماع على المنفذ الممرر من Railway أو 8080 افتراضياً
+// استخدام المنفذ الديناميكي من Railway مباشرة
 const PORT = process.env.PORT || 8080;
 
 const server = http.createServer((req, res) => {
@@ -14,10 +14,10 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Server is live and bound to port ${PORT}`);
+  console.log(`✅ Server is live on port ${PORT}`);
 });
 
-// تهيئة Firebase
+// تهيئة Firebase Admin SDK
 try {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
   admin.initializeApp({
@@ -31,7 +31,7 @@ try {
 
 const db = admin.database();
 
-// التسمع على Chats
+// الاستماع لأحداث الحذف
 db.ref("Chats").on("child_added", (chatSnapshot) => {
   const chatId = chatSnapshot.key;
   
@@ -55,8 +55,8 @@ async function saveDeleted(messageId, data, chatId) {
       original_data: data,
       deleted_at: new Date().toISOString()
     });
-    console.log(`✅ Message Saved: ${messageId}`);
+    console.log(`✅ Saved deleted message: ${messageId}`);
   } catch (err) {
-    console.error("❌ Save Error:", err);
+    console.error("❌ Save Error:", err.message);
   }
 }
