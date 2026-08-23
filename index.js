@@ -1,18 +1,8 @@
 const admin = require("firebase-admin");
-const express = require("express");
 
-const app = express();
-
-// إجبار الخادم على استخدام منفذ Railway الديناميكي أولاً
-const PORT = process.env.PORT || 8080;
-
-app.get("/", (req, res) => {
-  res.status(200).send("OK");
-});
-
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Express Server running on port ${PORT}`);
-});
+// التقاط الأخطاء لمنع الانهيار
+process.on("uncaughtException", (err) => console.error("Uncaught Error:", err));
+process.on("unhandledRejection", (err) => console.error("Unhandled Rejection:", err));
 
 // تهيئة Firebase
 try {
@@ -23,10 +13,12 @@ try {
   });
   console.log("✅ Firebase Connected Successfully");
 } catch (error) {
-  console.error("❌ Firebase Config Error:", error.message);
+  console.error("❌ Firebase Auth Error:", error.message);
 }
 
 const db = admin.database();
+
+console.log("=== السيرفر يعمل كـ Worker ومستعد لالتقاط الحذف ===");
 
 // التسمع على الحذف
 db.ref("Chats").on("child_added", (chatSnapshot) => {
