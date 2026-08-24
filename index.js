@@ -1,11 +1,18 @@
 const express = require("express");
 const app = express();
 
-// Railway تمرر المنفذ عبر متغير PORT
-const PORT = process.env.PORT || 3000;
+// محاولة اكتشاف المنفذ الصحيح
+let PORT = process.env.PORT || 3000;
+
+// إذا كان المنفذ 8080، جرب 3000
+if (PORT === "8080" || PORT === 8080) {
+  console.log("⚠️ Port 8080 detected, trying 3000 instead...");
+  PORT = 3000;
+}
 
 console.log("=== ENVIRONMENT VARIABLES ===");
 console.log("PORT:", process.env.PORT);
+console.log("USING PORT:", PORT);
 console.log("RAILWAY_ENVIRONMENT:", process.env.RAILWAY_ENVIRONMENT);
 console.log("============================");
 
@@ -31,10 +38,4 @@ const server = app.listen(PORT, "0.0.0.0", () => {
 server.on("error", (err) => {
   console.error("❌ Server error:", err);
   process.exit(1);
-});
-
-// منع الإيقاف السريع
-process.on("SIGTERM", () => {
-  console.log("Received SIGTERM, but ignoring...");
-  // لا تقم بإغلاق الخادم
 });
