@@ -4,6 +4,12 @@ const express = require("express");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+// ==================== تسجيل الطلبات ====================
+app.use((req, res, next) => {
+  console.log(`📥 ${req.method} ${req.url} - IP: ${req.ip}`);
+  next();
+});
+
 // ==================== تشخيص المنفذ ====================
 console.log(`🔧 Environment PORT = ${process.env.PORT}`);
 console.log(`🔧 Using PORT = ${PORT}`);
@@ -17,10 +23,9 @@ app.get("/health", (req, res) => {
   res.status(200).json({ status: "healthy", uptime: process.uptime() });
 });
 
-// ==================== إعداد Firebase أولاً ====================
-// التحقق من متغيرات البيئة المطلوبة
+// ==================== إعداد Firebase ====================
 if (!process.env.FIREBASE_SERVICE_ACCOUNT || !process.env.FIREBASE_DATABASE_URL) {
-  console.error("❌ Missing required environment variables: FIREBASE_SERVICE_ACCOUNT or FIREBASE_DATABASE_URL");
+  console.error("❌ Missing required environment variables");
   process.exit(1);
 }
 
@@ -39,7 +44,7 @@ try {
   process.exit(1);
 }
 
-// ==================== بدء خادم Express بعد نجاح Firebase ====================
+// ==================== بدء خادم Express ====================
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Express Server active on port ${PORT}`);
 });
@@ -77,7 +82,6 @@ function gracefulShutdown(signal) {
     });
   });
 
-  // إجبار الخروج إذا لم يتم الإغلاق خلال 5 ثوانٍ
   setTimeout(() => {
     console.error("❌ Forced shutdown after timeout");
     process.exit(1);
@@ -152,7 +156,6 @@ async function saveDeletedChat(chatId, data, retries = 3) {
 }
 
 // ==================== الاستماع لحذف البيانات ====================
-// عند إضافة محادثة جديدة
 db.ref("Chats").on("child_added", (chatSnapshot) => {
   const chatId = chatSnapshot.key;
   const messagesRef = db.ref(`Chats/${chatId}/messages`);
@@ -167,12 +170,10 @@ db.ref("Chats").on("child_added", (chatSnapshot) => {
   console.log(`👂 Listening for deletions in chat: ${chatId}`);
 });
 
-// عند حذف محادثة كاملة
 db.ref("Chats").on("child_removed", (chatSnapshot) => {
   const chatId = chatSnapshot.key;
   const chatData = chatSnapshot.val();
 
-  // إزالة مستمع الرسائل إذا كان موجوداً
   if (chatListeners.has(chatId)) {
     const { ref, callback } = chatListeners.get(chatId);
     ref.off("child_removed", callback);
@@ -180,7 +181,6 @@ db.ref("Chats").on("child_removed", (chatSnapshot) => {
     console.log(`🧹 Removed listener for chat: ${chatId}`);
   }
 
-  // حفظ بيانات المحادثة المحذوفة
   saveDeletedChat(chatId, chatData);
   console.log(`💬 Chat deleted: ${chatId}`);
 });
