@@ -80,3 +80,12 @@ function extractContent(data) {
   if (!data || typeof data !== 'object') return null;
   return data.content || data.text || data.message || data.body || JSON.stringify(data);
 }
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Express Server active on port ${PORT}`);
+  console.log(`Environment PORT = ${process.env.PORT}`);
+});
+
+process.on('SIGTERM', () => {
+  console.log('Received SIGTERM - Railway is stopping the container');
+  process.exit(0);
+});
