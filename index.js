@@ -4,13 +4,42 @@ const express = require("express");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// ==================== Express Server ====================
-// Healthcheck endpoint (required by Railway)
+// ==================== تشخيص المنفذ ====================
+console.log(`🔧 Environment PORT = ${process.env.PORT}`);
+console.log(`🔧 Using PORT = ${PORT}`);
+
+// ==================== مسارات فحص الصحة ====================
 app.get("/", (req, res) => {
   res.status(200).send("OK");
 });
 
-// Start server with error handling for EADDRINUSE
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "healthy", uptime: process.uptime() });
+});
+
+// ==================== إعداد Firebase أولاً ====================
+// التحقق من متغيرات البيئة المطلوبة
+if (!process.env.FIREBASE_SERVICE_ACCOUNT || !process.env.FIREBASE_DATABASE_URL) {
+  console.error("❌ Missing required environment variables: FIREBASE_SERVICE_ACCOUNT or FIREBASE_DATABASE_URL");
+  process.exit(1);
+}
+
+let db;
+
+try {
+  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    databaseURL: process.env.FIREBASE_DATABASE_URL,
+  });
+  console.log("✅ Firebase Connected Successfully");
+  db = admin.database();
+} catch (error) {
+  console.error("❌ Firebase Auth Error:", error.message);
+  process.exit(1);
+}
+
+// ==================== بدء خادم Express بعد نجاح Firebase ====================
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Express Server active on port ${PORT}`);
 });
@@ -25,7 +54,7 @@ server.on("error", (err) => {
   }
 });
 
-// ==================== Global Error Handlers ====================
+// ==================== معالجة الأخطاء العامة ====================
 process.on("uncaughtException", (err) => {
   console.error("❌ Uncaught Exception:", err);
 });
@@ -34,74 +63,48 @@ process.on("unhandledRejection", (err) => {
   console.error("❌ Unhandled Rejection:", err);
 });
 
-// Graceful shutdown
-process.on("SIGTERM", () => {
-  console.log("🛑 SIGTERM received, shutting down gracefully...");
+// ==================== إيقاف نظيف ====================
+function gracefulShutdown(signal) {
+  console.log(`🛑 ${signal} received, shutting down gracefully...`);
   server.close(() => {
-    admin.app().delete().then(() => process.exit(0));
+    console.log("✅ HTTP server closed");
+    admin.app().delete().then(() => {
+      console.log("✅ Firebase app deleted");
+      process.exit(0);
+    }).catch((err) => {
+      console.error("❌ Error during Firebase cleanup:", err);
+      process.exit(1);
+    });
   });
-  // Force exit if not closed within 5 seconds
-  setTimeout(() => process.exit(1), 5000);
-});
 
-process.on("SIGINT", () => {
-  console.log("🛑 SIGINT received, shutting down gracefully...");
-  server.close(() => {
-    admin.app().delete().then(() => process.exit(0));
-  });
-  setTimeout(() => process.exit(1), 5000);
-});
-
-// ==================== Firebase Initialization ====================
-// Check required environment variables
-if (!process.env.FIREBASE_SERVICE_ACCOUNT || !process.env.FIREBASE_DATABASE_URL) {
-  console.error("❌ Missing required environment variables: FIREBASE_SERVICE_ACCOUNT or FIREBASE_DATABASE_URL");
-  process.exit(1);
+  // إجبار الخروج إذا لم يتم الإغلاق خلال 5 ثوانٍ
+  setTimeout(() => {
+    console.error("❌ Forced shutdown after timeout");
+    process.exit(1);
+  }, 5000);
 }
 
-try {
-  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    databaseURL: process.env.FIREBASE_DATABASE_URL,
-  });
-  console.log("✅ Firebase Connected Successfully");
-} catch (error) {
-  console.error("❌ Firebase Auth Error:", error.message);
-  process.exit(1);
-}
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
-const db = admin.database();
-
-// ==================== Listener Management ====================
-// Map to track active listeners for each chat, so we can remove them when a chat is deleted.
+// ==================== إدارة المستمعين ====================
 const chatListeners = new Map();
 
-// ==================== Helper Functions ====================
-/**
- * Extracts the textual content from a message object.
- * Tries common fields and falls back to JSON stringification.
- */
+// ==================== دوال مساعدة ====================
 function extractContent(data) {
   if (typeof data === "string") return data;
   if (!data || typeof data !== "object") return null;
   return data.content || data.text || data.message || data.body || JSON.stringify(data);
 }
 
-/**
- * Saves a deleted message to the `deleted_messages` node.
- * Uses a composite key (chatId_messageId) to avoid collisions across different chats.
- * Includes a simple retry mechanism (3 attempts).
- */
 async function saveDeletedMessage(messageId, data, chatId, retries = 3) {
   if (!data) return;
 
   const compositeKey = `${chatId}_${messageId}`;
-  const content = extractContent(data);
   const payload = {
     message_id: messageId,
     chat_id: chatId || "",
-    content: content,
+    content: extractContent(data),
     sender_id: data.sender_id || data.senderId || "",
     original_data: data,
     deleted_at: new Date().toISOString(),
@@ -117,16 +120,12 @@ async function saveDeletedMessage(messageId, data, chatId, retries = 3) {
       if (attempt === retries) {
         console.error(`❌ Failed to save message after ${retries} attempts: ${compositeKey}`);
       } else {
-        // Wait before retrying (exponential backoff: 1s, 2s)
         await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
       }
     }
   }
 }
 
-/**
- * Saves a deleted chat (whole conversation) to the `deleted_chats` node.
- */
 async function saveDeletedChat(chatId, data, retries = 3) {
   if (!data) return;
 
@@ -152,38 +151,28 @@ async function saveDeletedChat(chatId, data, retries = 3) {
   }
 }
 
-// ==================== Firebase Realtime Database Listeners ====================
-/**
- * Listen for new chats being added.
- * For each new chat, set up a listener on its `messages` node to catch message deletions.
- */
+// ==================== الاستماع لحذف البيانات ====================
+// عند إضافة محادثة جديدة
 db.ref("Chats").on("child_added", (chatSnapshot) => {
   const chatId = chatSnapshot.key;
   const messagesRef = db.ref(`Chats/${chatId}/messages`);
 
-  // Define the callback for message deletion
   const onMessageRemoved = (snapshot) => {
     saveDeletedMessage(snapshot.key, snapshot.val(), chatId);
   };
 
-  // Attach listener to messages of this chat
   messagesRef.on("child_removed", onMessageRemoved);
-
-  // Store reference for later cleanup
   chatListeners.set(chatId, { ref: messagesRef, callback: onMessageRemoved });
 
   console.log(`👂 Listening for deletions in chat: ${chatId}`);
 });
 
-/**
- * Listen for a whole chat being removed from `Chats`.
- * This will clean up the message listener for that chat and save the chat data.
- */
+// عند حذف محادثة كاملة
 db.ref("Chats").on("child_removed", (chatSnapshot) => {
   const chatId = chatSnapshot.key;
   const chatData = chatSnapshot.val();
 
-  // Remove the message listener if it exists
+  // إزالة مستمع الرسائل إذا كان موجوداً
   if (chatListeners.has(chatId)) {
     const { ref, callback } = chatListeners.get(chatId);
     ref.off("child_removed", callback);
@@ -191,7 +180,7 @@ db.ref("Chats").on("child_removed", (chatSnapshot) => {
     console.log(`🧹 Removed listener for chat: ${chatId}`);
   }
 
-  // Save the deleted chat data
+  // حفظ بيانات المحادثة المحذوفة
   saveDeletedChat(chatId, chatData);
   console.log(`💬 Chat deleted: ${chatId}`);
 });
